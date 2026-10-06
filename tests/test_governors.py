@@ -84,6 +84,37 @@ class TransmissionDecisionTest(unittest.TestCase):
         )
 
 
+class PriorityValidationTest(unittest.TestCase):
+
+    INVALID = (-1, 5, 6, 255, 256)
+
+    def test_financial_rejects_values_outside_0_to_4(self):
+        gov = FinancialGovernor(daily_limit_mb=LIMIT_MB)
+        for value in self.INVALID:
+            with self.subTest(priority=value):
+                with self.assertRaises(ValueError):
+                    gov.check_transmission(1, value)
+        self.assertEqual(gov.used_bytes, 0)
+
+    def test_power_rejects_values_outside_0_to_4(self):
+        gov = PowerGovernor(BUDGET_J, J_PER_BYTE)
+        gov.set_hard_cutoff(0.20)
+        for value in self.INVALID:
+            for battery in (1.0, 0.10):
+                with self.subTest(priority=value, battery=battery):
+                    with self.assertRaises(ValueError):
+                        gov.check_transmission(1, value, battery)
+        self.assertEqual(gov.used_joules, 0)
+
+    def test_plain_int_class_values_accepted(self):
+        fin = FinancialGovernor(daily_limit_mb=LIMIT_MB)
+        power = PowerGovernor(BUDGET_J, J_PER_BYTE)
+        for value in range(5):
+            with self.subTest(priority=value):
+                self.assertTrue(fin.check_transmission(1, value).allowed)
+                self.assertTrue(power.check_transmission(1, value, 1.0).allowed)
+
+
 class FinancialGovernorThresholdTest(unittest.TestCase):
 
     def test_every_band_and_class(self):

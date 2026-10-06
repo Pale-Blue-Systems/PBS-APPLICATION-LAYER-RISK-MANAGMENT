@@ -37,6 +37,22 @@ class Priority(IntEnum):
     LOW      = 3  # Opportunistic or deferrable data
     BULK     = 4  # Non-urgent, high-volume data
 
+
+def _validate_priority(priority: int) -> Priority:
+    """Return priority as a Priority member.
+
+    Raises:
+        ValueError: priority is not a PBS-PRIO-01 class value (0-4).
+    """
+    try:
+        return Priority(priority)
+    except ValueError:
+        raise ValueError(
+            f"priority {priority!r} is not a PBS-PRIO-01 class value (0-4); "
+            "values 5-255 are reserved and MUST NOT be used"
+        ) from None
+
+
 @dataclass
 class TransmissionDecision:
     """Admission decision returned by a governor's check_transmission().
@@ -119,7 +135,11 @@ class FinancialGovernor:
 
         Returns:
             TransmissionDecision. cost_incurred is the packet size in MiB.
+
+        Raises:
+            ValueError: priority is not 0-4. Nothing is committed.
         """
+        priority = _validate_priority(priority)
         self._check_reset()
 
         # Thresholds apply to projected usage: committed bytes + this packet.
@@ -253,7 +273,11 @@ class PowerGovernor:
         Returns:
             TransmissionDecision. cost_incurred is the packet energy in J
             (0 for a BLACKOUT refusal).
+
+        Raises:
+            ValueError: priority is not 0-4. Nothing is committed.
         """
+        priority = _validate_priority(priority)
         self._check_reset()
 
         # 1. Hard cutoff: below it, only CRITICAL proceeds to the budget check.
