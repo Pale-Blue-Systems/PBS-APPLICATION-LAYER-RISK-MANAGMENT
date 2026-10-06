@@ -46,7 +46,10 @@ class TransmissionDecision:
             commits the packet's cost to its budget only when True.
         reason: Cause of a refusal. Admitted packets carry "Within Budget"
             (FinancialGovernor) or "Power Nominal" (PowerGovernor) at every
-            risk level.
+            risk level. In FinancialGovernor advisory mode
+            (strict_mode=False), a packet that strict mode would refuse is
+            admitted with "ADVISORY, not enforced: " followed by the
+            refusal reason.
         cost_incurred: Cost of the packet in MiB (FinancialGovernor) or
             joules (PowerGovernor), reported for admitted and refused
             packets. A BLACKOUT refusal reports 0.
@@ -77,13 +80,19 @@ class FinancialGovernor:
         >= 100 %           RED          HIGH, NORMAL, LOW, BULK
 
     CRITICAL is admitted at every risk level, including beyond 100 %.
+    With strict_mode=False the table is reported but not enforced.
     """
 
     def __init__(self, daily_limit_mb: float, strict_mode: bool = True):
         """
         Args:
-            daily_limit_mb (float): Maximum allowed data per 24h period.
-            strict_mode (bool): If True, strictly blocks lower priorities based on thresholds.
+            daily_limit_mb: Budget per 24 h period in MiB
+                (1 MiB = 1 048 576 bytes).
+            strict_mode: True (default) enforces the shedding table.
+                False selects advisory mode: every packet is admitted and
+                its size committed; risk_level uses the same thresholds,
+                and reason reports the refusal strict mode would apply
+                to the packet.
         """
         self.daily_limit_bytes = daily_limit_mb * 1024 * 1024
         self.used_bytes = 0
@@ -149,6 +158,11 @@ class FinancialGovernor:
                 decision.reason = "BUDGET CAUTION: BULK Dropped"
 
         # ---------------------------------------------------------
+
+        if not decision.allowed and not self.strict_mode:
+            # Advisory mode: report the refusal, admit the packet.
+            decision.allowed = True
+            decision.reason = "ADVISORY, not enforced: " + decision.reason
 
         # Commit usage only if allowed
         if decision.allowed:

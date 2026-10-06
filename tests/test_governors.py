@@ -156,6 +156,37 @@ class FinancialGovernorProjectedUsageTest(unittest.TestCase):
         self.assertEqual(gov.get_status(), "DATA USAGE: 50.00 MB (50.0%)")
 
 
+class FinancialGovernorStrictModeTest(unittest.TestCase):
+
+    def test_strict_by_default(self):
+        self.assertIs(FinancialGovernor(daily_limit_mb=LIMIT_MB).strict_mode, True)
+
+    def test_positional_argument_still_accepted(self):
+        self.assertIs(FinancialGovernor(LIMIT_MB, False).strict_mode, False)
+
+    def test_advisory_mode_admits_and_reports(self):
+        for size, risk, refused, refusal_reason in FINANCIAL_BANDS:
+            for priority in Priority:
+                with self.subTest(bytes=size, priority=priority.name):
+                    gov = FinancialGovernor(daily_limit_mb=LIMIT_MB, strict_mode=False)
+                    d = gov.check_transmission(size, priority)
+                    self.assertTrue(d.allowed)
+                    self.assertEqual(d.risk_level, risk)
+                    if priority in refused:
+                        self.assertEqual(d.reason, "ADVISORY, not enforced: " + refusal_reason)
+                    else:
+                        self.assertEqual(d.reason, "Within Budget")
+                    self.assertEqual(d.cost_incurred, size / MIB)
+                    self.assertEqual(gov.used_bytes, size)
+
+    def test_advisory_mode_commits_beyond_budget(self):
+        gov = FinancialGovernor(daily_limit_mb=LIMIT_MB, strict_mode=False)
+        for _ in range(25):
+            self.assertTrue(gov.check_transmission(5 * MIB, Priority.BULK).allowed)
+        self.assertEqual(gov.used_bytes, 125 * MIB)
+        self.assertEqual(gov.get_status(), "DATA USAGE: 125.00 MB (125.0%)")
+
+
 class FinancialGovernorResetTest(unittest.TestCase):
 
     def test_usage_resets_after_24_hours(self):
