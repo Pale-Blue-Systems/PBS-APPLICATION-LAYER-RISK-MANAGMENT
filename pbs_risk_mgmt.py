@@ -18,6 +18,9 @@ from dataclasses import dataclass
 from enum import IntEnum
 import time
 
+# Budget period of both governors, in seconds (24 h).
+BUDGET_PERIOD_S = 86400
+
 # ==========================================
 # PBS Protocol Constants (PBS-PRIO-01 v1.4)
 # ==========================================
@@ -88,10 +91,15 @@ class FinancialGovernor:
         self.last_reset_time = time.time()
 
     def _check_reset(self):
-        """Resets the counter if 24 hours have passed."""
-        if time.time() - self.last_reset_time > 86400:
+        """Start a new period if more than BUDGET_PERIOD_S has elapsed.
+
+        The new period starts at the time of the call that performs the
+        reset. Periods are not aligned to midnight.
+        """
+        now = time.time()
+        if now - self.last_reset_time > BUDGET_PERIOD_S:
             self.used_bytes = 0
-            self.last_reset_time = time.time()
+            self.last_reset_time = now
 
     def check_transmission(self, packet_size_bytes: int, priority: int) -> TransmissionDecision:
         """Decide whether one packet may be sent; commit its size if admitted.
@@ -153,6 +161,7 @@ class FinancialGovernor:
 
         MB in this string is MiB (1 048 576 bytes).
         """
+        self._check_reset()
         mb_used = self.used_bytes / 1024 / 1024
         percent = (self.used_bytes / self.daily_limit_bytes) * 100
         return f"DATA USAGE: {mb_used:.2f} MB ({percent:.1f}%)"
@@ -171,9 +180,9 @@ class PowerGovernor:
        set_hard_cutoff(), every class except CRITICAL is refused with
        risk_level BLACKOUT and cost_incurred 0. CRITICAL proceeds to
        check 2 and carries the budget risk level.
-    2. Energy budget. Thresholds apply to projected usage: joules
-       committed so far plus this packet's cost
-       (packet_size_bytes * joules_per_byte).
+    2. Energy budget per 24 h period. Thresholds apply to projected
+       usage: joules committed in the current period plus this packet's
+       cost (packet_size_bytes * joules_per_byte).
 
         Projected usage    risk_level   Refused classes
         < 85 %             GREEN        none
@@ -187,13 +196,26 @@ class PowerGovernor:
     def __init__(self, daily_budget_joules: float, joules_per_byte: float):
         """
         Args:
-            daily_budget_joules (float): Total energy allocated for comms.
-            joules_per_byte (float): Energy cost of the radio hardware per byte sent.
+            daily_budget_joules: Transmit-energy budget per 24 h period, J.
+                Usage resets on the same rule as FinancialGovernor.
+            joules_per_byte: Radio energy cost per byte sent, J/byte.
         """
         self.daily_budget_joules = daily_budget_joules
         self.joules_per_byte = joules_per_byte
         self.used_joules = 0
         self.hard_cutoff_percent = 0.0
+        self.last_reset_time = time.time()
+
+    def _check_reset(self):
+        """Start a new period if more than BUDGET_PERIOD_S has elapsed.
+
+        The new period starts at the time of the call that performs the
+        reset. Periods are not aligned to midnight.
+        """
+        now = time.time()
+        if now - self.last_reset_time > BUDGET_PERIOD_S:
+            self.used_joules = 0
+            self.last_reset_time = now
 
     def set_hard_cutoff(self, battery_level: float):
         """Set the battery level below which only CRITICAL is admitted.
@@ -218,6 +240,7 @@ class PowerGovernor:
             TransmissionDecision. cost_incurred is the packet energy in J
             (0 for a BLACKOUT refusal).
         """
+        self._check_reset()
 
         # 1. Hard cutoff: below it, only CRITICAL proceeds to the budget check.
         if current_battery_level < self.hard_cutoff_percent:

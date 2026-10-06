@@ -17,6 +17,7 @@ if REPO_ROOT not in sys.path:
 
 import pbs_risk_mgmt  # noqa: E402
 from pbs_risk_mgmt import (  # noqa: E402
+    BUDGET_PERIOD_S,
     FinancialGovernor,
     PowerGovernor,
     Priority,
@@ -24,7 +25,6 @@ from pbs_risk_mgmt import (  # noqa: E402
 )
 
 MIB = 1024 * 1024
-DAY_S = 86400
 T0 = 1_800_000_000.0  # Arbitrary epoch for the patched clock, seconds
 
 ALL_CLASSES = frozenset(Priority)
@@ -164,17 +164,42 @@ class FinancialGovernorResetTest(unittest.TestCase):
             gov.check_transmission(fin_bytes(90), Priority.CRITICAL)
 
             # Exactly 86 400 s later: same period, BULK still refused.
-            clock.return_value = T0 + DAY_S
+            clock.return_value = T0 + BUDGET_PERIOD_S
             self.assertFalse(gov.check_transmission(MIB, Priority.BULK).allowed)
             self.assertEqual(gov.used_bytes, fin_bytes(90))
 
             # More than 86 400 s later: new period starting now.
-            clock.return_value = T0 + DAY_S + 1
+            clock.return_value = T0 + BUDGET_PERIOD_S + 1
             d = gov.check_transmission(MIB, Priority.BULK)
             self.assertTrue(d.allowed)
             self.assertEqual(d.risk_level, "GREEN")
             self.assertEqual(gov.used_bytes, MIB)
-            self.assertEqual(gov.last_reset_time, T0 + DAY_S + 1)
+            self.assertEqual(gov.last_reset_time, T0 + BUDGET_PERIOD_S + 1)
+
+    def test_next_period_starts_at_the_reset(self):
+        t1 = T0 + BUDGET_PERIOD_S + 3600
+        with mock.patch.object(pbs_risk_mgmt.time, "time", return_value=T0) as clock:
+            gov = FinancialGovernor(daily_limit_mb=LIMIT_MB)
+            clock.return_value = t1
+            gov.check_transmission(fin_bytes(90), Priority.CRITICAL)  # resets at t1
+
+            clock.return_value = t1 + BUDGET_PERIOD_S
+            self.assertEqual(gov.used_bytes, fin_bytes(90))
+            self.assertFalse(gov.check_transmission(MIB, Priority.BULK).allowed)
+
+            clock.return_value = t1 + BUDGET_PERIOD_S + 1
+            self.assertTrue(gov.check_transmission(MIB, Priority.BULK).allowed)
+            self.assertEqual(gov.used_bytes, MIB)
+
+    def test_get_status_reports_current_period(self):
+        with mock.patch.object(pbs_risk_mgmt.time, "time", return_value=T0) as clock:
+            gov = FinancialGovernor(daily_limit_mb=LIMIT_MB)
+            gov.check_transmission(50 * MIB, Priority.NORMAL)
+            clock.return_value = T0 + BUDGET_PERIOD_S + 1
+            self.assertEqual(gov.get_status(), "DATA USAGE: 0.00 MB (0.0%)")
+
+    def test_period_is_24_hours(self):
+        self.assertEqual(BUDGET_PERIOD_S, 24 * 3600)
 
 
 class PowerGovernorThresholdTest(unittest.TestCase):
@@ -232,6 +257,41 @@ class PowerGovernorThresholdTest(unittest.TestCase):
         self.assertTrue(d.allowed)
         self.assertEqual(d.risk_level, "GREEN")
         self.assertAlmostEqual(d.cost_incurred, 2.048)
+
+
+class PowerGovernorResetTest(unittest.TestCase):
+
+    def test_usage_resets_after_24_hours(self):
+        with mock.patch.object(pbs_risk_mgmt.time, "time", return_value=T0) as clock:
+            gov = PowerGovernor(BUDGET_J, J_PER_BYTE)
+            gov.check_transmission(990, Priority.CRITICAL, 1.0)
+
+            # Exactly 86 400 s later: same period, RED, HIGH refused.
+            clock.return_value = T0 + BUDGET_PERIOD_S
+            d = gov.check_transmission(10, Priority.HIGH, 1.0)
+            self.assertFalse(d.allowed)
+            self.assertEqual(d.risk_level, "RED")
+            self.assertEqual(gov.used_joules, 990)
+
+            # More than 86 400 s later: new period starting now.
+            clock.return_value = T0 + BUDGET_PERIOD_S + 1
+            d = gov.check_transmission(10, Priority.HIGH, 1.0)
+            self.assertTrue(d.allowed)
+            self.assertEqual(d.risk_level, "GREEN")
+            self.assertEqual(gov.used_joules, 10)
+            self.assertEqual(gov.last_reset_time, T0 + BUDGET_PERIOD_S + 1)
+
+    def test_reset_applies_on_a_blackout_call(self):
+        with mock.patch.object(pbs_risk_mgmt.time, "time", return_value=T0) as clock:
+            gov = PowerGovernor(BUDGET_J, J_PER_BYTE)
+            gov.set_hard_cutoff(0.20)
+            gov.check_transmission(990, Priority.CRITICAL, 1.0)
+
+            clock.return_value = T0 + BUDGET_PERIOD_S + 1
+            d = gov.check_transmission(10, Priority.LOW, current_battery_level=0.10)
+            self.assertEqual(d.risk_level, "BLACKOUT")
+            self.assertEqual(gov.used_joules, 0)
+            self.assertEqual(gov.last_reset_time, T0 + BUDGET_PERIOD_S + 1)
 
 
 class PowerGovernorHardCutoffTest(unittest.TestCase):
