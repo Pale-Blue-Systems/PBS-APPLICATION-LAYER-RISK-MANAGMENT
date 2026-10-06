@@ -1,56 +1,86 @@
-import sys
+"""FinancialGovernor budget simulation.
+
+Offers 25 BULK packets of 5 MiB (125 MiB in total) to a governor with a
+100 MiB budget. After each BULK refusal it offers a 128-byte CRITICAL
+heartbeat. Each row prints the usage committed before the decision and
+the projected usage the decision is based on (committed + this packet).
+Every figure in the summary is computed from the decisions returned.
+"""
+
 import os
-import time
+import sys
 
-# Add parent directory to path so we can import the module without installing it
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Import pbs_risk_mgmt from the repository root without installing it.
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from pbs_risk_mgmt import FinancialGovernor, Priority
+from pbs_risk_mgmt import FinancialGovernor, Priority  # noqa: E402
+
+MIB = 1024 * 1024
+DAILY_LIMIT_MB = 100        # MiB per 24 h period
+BULK_SIZE = 5 * MIB         # bytes
+HEARTBEAT_SIZE = 128        # bytes
+BULK_ATTEMPTS = 25
+BAR_WIDTH = 20              # characters; one character = 5 % of the budget
+
+
+def usage_bar(percent):
+    filled = max(0, min(BAR_WIDTH, int(percent * BAR_WIDTH / 100)))
+    return "[" + "#" * filled + "." * (BAR_WIDTH - filled) + "]"
+
+
+def offer(gov, step, size, priority):
+    """Submit one packet, print one row, return (decision, used %, projected %)."""
+    used_pct = gov.used_bytes / gov.daily_limit_bytes * 100
+    projected_pct = (gov.used_bytes + size) / gov.daily_limit_bytes * 100
+    decision = gov.check_transmission(size, priority)
+    result = "SENT" if decision.allowed else "REFUSED"
+    print(f"{step:>4}  {usage_bar(used_pct)} {used_pct:5.1f}%  {projected_pct:9.1f}%  "
+          f"{priority.name:<8}  {size:>9}  {result:<7}  {decision.risk_level:<6}  {decision.reason}")
+    return decision, used_pct, projected_pct
+
 
 def run_simulation():
-    print("==================================================")
-    print("      PBS RISK MANAGEMENT: BUDGET SIMULATION      ")
-    print("==================================================")
-    print("SCENARIO: 100 MB Daily Limit (Metered Commercial Link)")
-    print("--------------------------------------------------")
+    gov = FinancialGovernor(daily_limit_mb=DAILY_LIMIT_MB)
 
-    # Initialize Governor (100 MB Limit)
-    gov = FinancialGovernor(daily_limit_mb=100)
-    
-    # Define typical packet sizes
-    SIZES = {
-        "HEARTBEAT": 128,             # Tiny (Bytes)
-        "LOGS":      50 * 1024,       # 50 KB
-        "BULK":      5 * 1024 * 1024  # 5 MB (Heavy!)
-    }
+    print("PBS RISK MANAGEMENT: FinancialGovernor budget simulation")
+    print(f"Budget: {DAILY_LIMIT_MB} MiB per 24 h period ({gov.daily_limit_bytes:.0f} bytes).")
+    print(f"Offer {BULK_ATTEMPTS} BULK packets of {BULK_SIZE // MIB} MiB. After each refusal, "
+          f"offer one {HEARTBEAT_SIZE}-byte CRITICAL heartbeat.")
+    print("Decisions use projected usage = used before + this packet.")
+    print()
+    print(f"{'Step':>4}  {'Used before':<29}  {'Projected':>10}  {'Class':<8}  {'Bytes':>9}  "
+          f"{'Result':<7}  {'Risk':<6}  Reason")
 
-    # Simulate 25 BULK Transmissions (5MB each)
-    # This totals 125 MB (Will exceed the 100 MB limit)
-    for i in range(1, 26):
-        time.sleep(0.05) # Just for effect
-        
-        # 1. Attempt to send Heavy BULK data (Priority 4)
-        decision = gov.check_transmission(SIZES["BULK"], Priority.BULK)
-        
-        # Format the output for readability
-        pct = (gov.used_bytes / gov.daily_limit_bytes) * 100
-        bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
-        
+    bulk_sent = 0
+    first_refusal = None    # (step, used %, projected %, decision)
+    heartbeats_offered = 0
+    heartbeats_sent = 0
+
+    for step in range(1, BULK_ATTEMPTS + 1):
+        decision, used_pct, projected_pct = offer(gov, step, BULK_SIZE, Priority.BULK)
         if decision.allowed:
-            status = "✅ SENT "
-            print(f"[{bar}] {pct:5.1f}% | BULK    | {status} | Cost: +5.0 MB")
-        else:
-            status = "❌ BLOCK"
-            print(f"[{bar}] {pct:5.1f}% | BULK    | {status} | {decision.reason}")
-            
-            # 2. If BULK is blocked, try to send a Heartbeat (Priority CRITICAL)
-            hb_decision = gov.check_transmission(SIZES["HEARTBEAT"], Priority.CRITICAL)
-            if hb_decision.allowed:
-                 print(f"                                   -> Fallback: CRITICAL HEARTBEAT sent (Risk: {hb_decision.risk_level})")
+            bulk_sent += 1
+            continue
+        if first_refusal is None:
+            first_refusal = (step, used_pct, projected_pct, decision)
+        heartbeats_offered += 1
+        hb_decision, _, _ = offer(gov, "", HEARTBEAT_SIZE, Priority.CRITICAL)
+        if hb_decision.allowed:
+            heartbeats_sent += 1
 
-    print("\n--------------------------------------------------")
-    print("SIMULATION COMPLETE")
-    print("Notice how BULK (4) was cut at 80%, but CRITICAL (0) kept flowing.")
+    bulk_refused = BULK_ATTEMPTS - bulk_sent
+    print()
+    print("Summary")
+    print(f"  BULK sent:            {bulk_sent} of {BULK_ATTEMPTS} "
+          f"({bulk_sent * BULK_SIZE // MIB} MiB)")
+    print(f"  BULK refused:         {bulk_refused}")
+    if first_refusal is not None:
+        step, used_pct, projected_pct, decision = first_refusal
+        print(f"  First BULK refusal:   step {step}: used {used_pct:.1f}%, "
+              f"projected {projected_pct:.1f}%, {decision.risk_level} ({decision.reason})")
+    print(f"  CRITICAL heartbeats:  {heartbeats_sent} of {heartbeats_offered} sent")
+    print(f"  Final status:         {gov.get_status()}")
+
 
 if __name__ == "__main__":
     run_simulation()
