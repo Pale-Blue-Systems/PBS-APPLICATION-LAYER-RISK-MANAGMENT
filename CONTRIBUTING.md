@@ -33,7 +33,7 @@ python3 -m unittest discover -s tests -v
 python3 examples/demo_budget.py
 ```
 
-Add or update tests in `tests/test_governors.py` for every behaviour change. The tests use only the standard-library `unittest` module. The [tests workflow](.github/workflows/tests.yml) runs both commands on Python 3.8, 3.10 and 3.12 for every push and pull request.
+Add or update tests in `tests/test_governors.py` for every behaviour change. The tests use only the Python standard library; do not add a third-party test dependency. The [tests workflow](.github/workflows/tests.yml) runs both commands on Python 3.8, 3.10 and 3.12 for every push and pull request.
 
 ## License
 

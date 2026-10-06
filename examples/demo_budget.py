@@ -4,7 +4,9 @@ Offers 25 BULK packets of 5 MiB (125 MiB in total) to a governor with a
 100 MiB budget. After each BULK refusal it offers a 128-byte CRITICAL
 heartbeat. Each row prints the usage committed before the decision and
 the projected usage the decision is based on (committed + this packet).
-Every figure in the summary is computed from the decisions returned.
+No summary figure is hard-coded: counts, risk level and reason come from
+the returned decisions, percentages from the governor state before each
+call, and the final line from get_status().
 """
 
 import os

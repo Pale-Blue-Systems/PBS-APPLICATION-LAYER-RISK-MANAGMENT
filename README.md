@@ -18,7 +18,7 @@ For each packet the caller passes the packet size and its PBS-PRIO-01 priority c
 The governors run at the application layer, between mission logic and the PBS protocol stack. They do not build, parse or modify PBS-ENV-01 envelopes. The caller transmits a packet only when `decision.allowed` is `True`.
 
 **Use cases:**
-- Metered commercial links with per-MB billing
+- Metered commercial links billed by data volume
 - Battery-constrained assets with a fixed transmit-energy allocation
 - Autonomous systems that need a defined degradation sequence when a resource budget runs out
 
@@ -56,7 +56,7 @@ From the repository root:
 python3 -m unittest discover -s tests -v
 ```
 
-`tests/test_governors.py` uses only `unittest`. It covers every threshold boundary of both governors for all five classes, projected-usage evaluation, CRITICAL admission beyond the budget, the hard cutoff, the 24-hour reset, advisory mode and priority validation. The [tests workflow](.github/workflows/tests.yml) runs the tests and `examples/demo_budget.py` on Python 3.8, 3.10 and 3.12 for every push and pull request.
+`tests/test_governors.py` uses only the Python standard library (`unittest`, with `unittest.mock` for the clock); it needs no installed package. It covers every threshold boundary of both governors for all five classes, projected-usage evaluation, CRITICAL admission beyond the budget, the hard cutoff, the 24-hour reset, advisory mode and priority validation. The [tests workflow](.github/workflows/tests.yml) runs the tests and `examples/demo_budget.py` on Python 3.8, 3.10 and 3.12 for every push and pull request.
 
 ---
 
@@ -83,7 +83,9 @@ transmit_packet(heartbeat, Priority.CRITICAL)  # admitted in every state
 
 `daily_limit_mb` is in MiB (1 MiB = 1 048 576 bytes). `cost_incurred` and `get_status()` use the same unit; `get_status()` labels it `MB`.
 
-`FinancialGovernor(daily_limit_mb, strict_mode=False)` selects advisory mode. The governor evaluates the same thresholds and returns the same `risk_level`, but admits every packet and commits its size. A packet that strict mode would refuse carries the reason `ADVISORY, not enforced: ` followed by the refusal reason. The default, `strict_mode=True`, enforces the table in [Shedding logic](#shedding-logic).
+`FinancialGovernor(daily_limit_mb, strict_mode=False)` selects advisory mode. The governor computes `risk_level` from projected usage with the same thresholds, but admits every packet and commits its size, so usage can exceed 100 %. A packet that strict mode would refuse carries the reason `ADVISORY, not enforced: ` followed by the refusal reason. The default, `strict_mode=True`, enforces the table in [Shedding logic](#shedding-logic).
+
+Compatibility: up to and including commit `eed566d`, `strict_mode` was stored but never read, so `strict_mode=False` enforced the table. Callers that pass `strict_mode=False` now receive advisory decisions, and the budget is not enforced.
 
 ### PowerGovernor (energy budget)
 
@@ -141,7 +143,7 @@ In strict mode, admitted packets carry the reason `Within Budget` at every risk 
 
 `check_transmission()` applies two checks in order.
 
-1. **Hard cutoff.** If `current_battery_level` is below the cutoff, every class except CRITICAL is refused with `risk_level` `BLACKOUT` and `cost_incurred` 0. CRITICAL continues to the budget check and receives the budget risk level. A battery level equal to the cutoff passes.
+1. **Hard cutoff.** If `current_battery_level` is below the cutoff, every class except CRITICAL is refused with `risk_level` `BLACKOUT` and `cost_incurred` 0. CRITICAL is not subject to the cutoff: it continues to the budget check, which admits it with `risk_level` GREEN, YELLOW or RED. A CRITICAL decision never carries `BLACKOUT`. A battery level equal to the cutoff passes.
 2. **Energy budget.** Projected usage = (joules committed + packet bytes × `joules_per_byte`) / `daily_budget_joules`.
 
 | `risk_level` | Condition | Refused | Admitted | Refusal `reason` |
@@ -149,7 +151,7 @@ In strict mode, admitted packets carry the reason `Within Budget` at every risk 
 | **GREEN**    | projected usage < 85 %         | none | CRITICAL, HIGH, NORMAL, LOW, BULK | — |
 | **YELLOW**   | projected usage ≥ 85 %, < 98 % | BULK | CRITICAL, HIGH, NORMAL, LOW | `POWER SAVE MODE: BULK Dropped` |
 | **RED**      | projected usage ≥ 98 %         | HIGH, NORMAL, LOW, BULK | CRITICAL | `POWER BUDGET EMPTY` |
-| **BLACKOUT** | battery level below the cutoff | HIGH, NORMAL, LOW, BULK | CRITICAL, subject to the budget check | `BATTERY CRITICAL: Hard Cutoff` |
+| **BLACKOUT** | battery level below the cutoff | HIGH, NORMAL, LOW, BULK | none at this level; CRITICAL bypasses the cutoff and takes the GREEN, YELLOW or RED row for its projected usage | `BATTERY CRITICAL: Hard Cutoff` |
 
 `PowerGovernor` has no ORANGE level. Admitted packets carry the reason `Power Nominal` at every risk level.
 
