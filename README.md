@@ -23,12 +23,15 @@ PBS-RISK-MGMT operates at the application layer, between mission logic and the P
 
 ```bash
 # Clone the repository
-git clone https://github.com/Pale-Blue-Systems/PBS-APPLICATION-LAYER-RISK-MANAGEMENT.git
+git clone https://github.com/Pale-Blue-Systems/PBS-APPLICATION-LAYER-RISK-MANAGMENT.git
 
-# Install from source
-cd PBS-APPLICATION-LAYER-RISK-MANAGEMENT
-pip install -e .
+cd PBS-APPLICATION-LAYER-RISK-MANAGMENT
+
+# Run the budget simulation
+python3 examples/demo_budget.py
 ```
+
+The governors are a single standard-library module, `pbs_risk_mgmt.py`. Put it on your `PYTHONPATH` (or copy it into your project) and import it as shown below.
 
 ---
 
