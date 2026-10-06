@@ -119,7 +119,10 @@ class FinancialGovernor:
         """Start a new period if more than BUDGET_PERIOD_S has elapsed.
 
         The new period starts at the time of the call that performs the
-        reset. Periods are not aligned to midnight.
+        reset. Periods are not aligned to midnight. Elapsed time is the
+        difference of two time.time() readings (system wall clock): a
+        clock step of s seconds moves the end of the period s seconds
+        earlier (forward step) or later (backward step).
         """
         now = time.time()
         if now - self.last_reset_time > BUDGET_PERIOD_S:
@@ -190,7 +193,7 @@ class FinancialGovernor:
 
         return decision
 
-    def get_status(self):
+    def get_status(self) -> str:
         """Return usage in the current period, e.g. "DATA USAGE: 12.50 MB (12.5%)".
 
         MB in this string is MiB (1 048 576 bytes).
@@ -244,14 +247,17 @@ class PowerGovernor:
         """Start a new period if more than BUDGET_PERIOD_S has elapsed.
 
         The new period starts at the time of the call that performs the
-        reset. Periods are not aligned to midnight.
+        reset. Periods are not aligned to midnight. Elapsed time is the
+        difference of two time.time() readings (system wall clock): a
+        clock step of s seconds moves the end of the period s seconds
+        earlier (forward step) or later (backward step).
         """
         now = time.time()
         if now - self.last_reset_time > BUDGET_PERIOD_S:
             self.used_joules = 0
             self.last_reset_time = now
 
-    def set_hard_cutoff(self, battery_level: float):
+    def set_hard_cutoff(self, battery_level: float) -> None:
         """Set the battery level below which only CRITICAL is admitted.
 
         battery_level uses the same scale as current_battery_level in
@@ -283,7 +289,7 @@ class PowerGovernor:
         # 1. Hard cutoff: below it, only CRITICAL proceeds to the budget check.
         if current_battery_level < self.hard_cutoff_percent:
             if priority > Priority.CRITICAL:
-                 return TransmissionDecision(False, "BATTERY CRITICAL: Hard Cutoff", 0, "BLACKOUT")
+                return TransmissionDecision(False, "BATTERY CRITICAL: Hard Cutoff", 0, "BLACKOUT")
 
         # 2. Budget check on projected usage: committed joules + this packet.
         cost_joules = packet_size_bytes * self.joules_per_byte

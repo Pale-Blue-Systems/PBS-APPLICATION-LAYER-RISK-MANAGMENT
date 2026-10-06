@@ -122,7 +122,7 @@ decision = power_gov.check_transmission(
 
 Both governors evaluate thresholds on **projected usage**: the budget committed in the current period plus the cost of the packet under evaluation. A packet is refused when projected usage falls in a band that sheds its class. A refused packet commits nothing; an admitted packet commits its full cost. Lower classes are shed first, under PBS-PRIO-01 v1.4 Section 6 ("Lower-priority envelopes MAY be delayed or dropped under sustained congestion"). CRITICAL is never refused.
 
-Each governor resets its usage to zero on the first `check_transmission()` call (or `FinancialGovernor.get_status()` call) made more than 86 400 s after the previous reset or after construction. The new period starts at that call; periods are not aligned to midnight.
+Each governor resets its usage to zero on the first `check_transmission()` call (or `FinancialGovernor.get_status()` call) made more than 86 400 s after the previous reset or after construction. The new period starts at that call; periods are not aligned to midnight. Elapsed time is the difference of two `time.time()` readings (system wall clock). A clock step of *s* seconds therefore moves the end of the current period: *s* seconds earlier for a forward step, *s* seconds later for a backward step.
 
 ### FinancialGovernor
 
