@@ -1,14 +1,15 @@
 # Contributing to PBS Application-Layer Risk Management
 
-Thank you for your interest in contributing to the Pale Blue Systems open standards ecosystem.
+This repository holds the PBS application-layer resource governors in `pbs_risk_mgmt.py`, their tests and the budget simulation.
 
 ## Scope
 
-This repository provides application-layer resource governors for PBS-compliant systems. Contributions should:
+Contributions must:
 
-- Align with PBS-PRIO-01 priority semantics
-- Maintain compatibility with the PBS Core v1 specification
-- Follow the existing code style and documentation patterns
+- Use the PBS-PRIO-01 v1.4 priority classes exactly as its Section 4 defines them: 0 CRITICAL, 1 HIGH, 2 NORMAL, 3 LOW, 4 BULK. Values 5–255 are reserved (Section 5); the governors reject them with `ValueError`.
+- Preserve the shedding order: a governor refuses lower classes before higher classes and admits CRITICAL in every state.
+- Update the README shedding tables and `tests/test_governors.py` in the same pull request as any change to a threshold, a reason string or a `TransmissionDecision` field.
+- Follow the existing code style and documentation patterns.
 
 ## How to Contribute
 
@@ -25,11 +26,14 @@ This repository provides application-layer resource governors for PBS-compliant 
 
 ## Testing
 
-Run the demo simulation to verify your changes:
+Run both commands from the repository root before opening a pull request:
 
 ```bash
-python examples/demo_budget.py
+python3 -m unittest discover -s tests -v
+python3 examples/demo_budget.py
 ```
+
+Add or update tests in `tests/test_governors.py` for every behaviour change. The tests use only the Python standard library; do not add a third-party test dependency. The [tests workflow](.github/workflows/tests.yml) runs both commands on Python 3.8, 3.10 and 3.12 for every push and pull request.
 
 ## License
 
