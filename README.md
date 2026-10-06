@@ -85,7 +85,7 @@ transmit_packet(heartbeat, Priority.CRITICAL)  # admitted in every state
 
 `FinancialGovernor(daily_limit_mb, strict_mode=False)` selects advisory mode. The governor computes `risk_level` from projected usage with the same thresholds, but admits every packet and commits its size, so usage can exceed 100 %. A packet that strict mode would refuse carries the reason `ADVISORY, not enforced: ` followed by the refusal reason. The default, `strict_mode=True`, enforces the table in [Shedding logic](#shedding-logic).
 
-Compatibility: up to and including commit `eed566d`, `strict_mode` was stored but never read, so `strict_mode=False` enforced the table. Callers that pass `strict_mode=False` now receive advisory decisions, and the budget is not enforced.
+Compatibility: up to and including commit `eed566d`, `strict_mode` was stored but never read, so `strict_mode=False` enforced the table. Callers that pass `strict_mode=False` now receive advisory decisions, and the budget is not enforced. Up to the same commit, `PowerGovernor` never reset `used_joules`: a spent energy budget stayed spent until the object was recreated; it now resets on the 24 h rule in [Shedding logic](#shedding-logic). Both governors accepted any integer priority; they now raise `ValueError` for a priority outside 0–4 (PBS-PRIO-01 v1.4, Section 5.1). [CHANGELOG.md](CHANGELOG.md) lists every change.
 
 ### PowerGovernor (energy budget)
 
@@ -124,7 +124,7 @@ decision = power_gov.check_transmission(
 
 Both governors evaluate thresholds on **projected usage**: the budget committed in the current period plus the cost of the packet under evaluation. A packet is refused when projected usage falls in a band that sheds its class. A refused packet commits nothing; an admitted packet commits its full cost. Lower classes are shed first, under PBS-PRIO-01 v1.4 Section 6 ("Lower-priority envelopes MAY be delayed or dropped under sustained congestion"). CRITICAL is never refused.
 
-Each governor resets its usage to zero on the first `check_transmission()` call (or `FinancialGovernor.get_status()` call) made more than 86 400 s after the previous reset or after construction. The new period starts at that call; periods are not aligned to midnight. Elapsed time is the difference of two `time.time()` readings (system wall clock). A clock step of *s* seconds therefore moves the end of the current period: *s* seconds earlier for a forward step, *s* seconds later for a backward step.
+Each governor resets its usage to zero on the first `check_transmission()` call with a priority of 0–4 (or `FinancialGovernor.get_status()` call) made more than 86 400 s after the previous reset or after construction. A call that raises `ValueError` does not reset the period. The new period starts at that call; periods are not aligned to midnight. Elapsed time is the difference of two `time.time()` readings (system wall clock). A clock step of *s* seconds therefore moves the end of the current period: *s* seconds earlier for a forward step, *s* seconds later for a backward step.
 
 ### FinancialGovernor
 
